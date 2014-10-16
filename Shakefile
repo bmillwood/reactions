@@ -1,0 +1,18 @@
+import Development.Shake
+import Development.Shake.Command
+import Development.Shake.FilePath
+import Development.Shake.Util
+
+main :: IO ()
+main = shakeArgs shakeOptions{shakeFiles="build/"} $ do
+    let out = "build/main.html"
+    want [out]
+
+    phony "upload" $ do    
+        need [out]
+        cmd "scp" out "shell.srcf.net:~/public_html/reactions"
+
+    out *> \ _out -> do
+        let src = "main.elm"
+        need [src]
+        cmd "elm --set-runtime=elm-runtime.js" src
