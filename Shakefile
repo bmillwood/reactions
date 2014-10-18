@@ -5,7 +5,7 @@ import Development.Shake.Util
 
 main :: IO ()
 main = shakeArgs shakeOptions{shakeFiles="build/"} $ do
-    let out = "build/main.html"
+    let out = "build/Main.html"
     want [out]
 
     phony "upload" $ do    
@@ -13,6 +13,6 @@ main = shakeArgs shakeOptions{shakeFiles="build/"} $ do
         cmd "scp" out "shell.srcf.net:~/public_html/reactions"
 
     out *> \ _out -> do
-        let src = "main.elm"
+        let src = "Main.elm"
         need [src]
         cmd "elm --set-runtime=elm-runtime.js" src
