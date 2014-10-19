@@ -1,5 +1,6 @@
+module Main where
+
 import Char
-import Dict
 import Graphics.Collage
 import Keyboard
 import List
@@ -8,18 +9,19 @@ import Signal
 import Text
 import Window
 
-data ThingId = ID
-type Vector = { x : Float, y : Float }
-type RelVector = { forward : Float, right : Float }
-type Dynamics = { position : Vector, motion : Vector, orientation : Float }
-type World = Dict.Dict ThingId Dynamics
-type Control = { move : RelVector, turn : Float }
+import Vector
+import Vector (Vector, (.+.), (.-.), (*.))
 
-(.+.) : Vector -> Vector -> Vector
-a .+. b = { x = a.x + b.x, y = a.y + b.y }
+type RelVector = { forward : Float, right : Float }
+type Momentum = { pos : Vector, ang : Float }
+type Dynamics = { now : Momentum, change : Momentum }
+type Control = { move : RelVector, turn : Float }
 
 key : Char -> Signal Bool
 key = Keyboard.isDown << Char.toCode
+
+ticks : Signal Time
+ticks = fps 10
 
 control : Signal Control
 control =
@@ -32,7 +34,6 @@ control =
         }
   in
   keysControl <~ keyPair 'w' 's' ~ keyPair 'a' 'd' ~ keyPair 'e' 'q'
-  |> Signal.sampleOn (fps 10)
 
 motionVector : Float -> RelVector -> Vector
 motionVector orient { forward, right } =
@@ -40,47 +41,116 @@ motionVector orient { forward, right } =
   , y = forward * sin orient - right * cos orient
   }
 
-bounce : Dynamics -> Dynamics
-bounce dyn =
-  let newX =
-        if | dyn.position.x >= 200 -> negate (abs dyn.motion.x)
-           | dyn.position.x <= -200 -> abs dyn.motion.x
-           | otherwise -> dyn.motion.x
-      newY =
-        if | dyn.position.y >= 200 -> negate (abs dyn.motion.y)
-           | dyn.position.y <= -200 -> abs dyn.motion.y
-           | otherwise -> dyn.motion.y
+bounce : Int -> Int -> Dynamics -> Dynamics
+bounce w h dyn =
+  let wf = toFloat w / 2
+      hf = toFloat h / 2
+      change = dyn.change
   in
-  { dyn | motion <- { x = newX, y = newY } }
-
-stepDynamics : Control -> Dynamics -> Dynamics
-stepDynamics control dynamics =
-  let acceleration = motionVector dynamics.orientation control.move
-  in
-  { position = dynamics.position .+. dynamics.motion
-  , motion = dynamics.motion .+. acceleration
-  , orientation = dynamics.orientation + control.turn
-  } |> bounce
-
-thingDynamics : Signal Dynamics
-thingDynamics =
-  Signal.foldp
-    stepDynamics
-    { position = { x = 0, y = 0 }, motion = { x = 0, y = 0 }
-    , orientation = pi/2
+  { dyn | change <-
+    { change | pos <-
+      { x = 
+        if | dyn.now.pos.x >= wf -> negate (abs dyn.change.pos.x)
+           | dyn.now.pos.x <= -wf -> abs dyn.change.pos.x
+           | otherwise -> dyn.change.pos.x
+      , y =
+        if | dyn.now.pos.y >= hf -> negate (abs dyn.change.pos.y)
+           | dyn.now.pos.y <= -hf -> abs dyn.change.pos.y
+           | otherwise -> dyn.change.pos.y
+      }
     }
-    control
+  }
 
-avatar : Form
-avatar = rotate (-pi/2) << toForm << centered << Text.height 50 <| toText "H"
+stepDynamics : Vector -> Float -> (Int, Int) -> Dynamics -> Dynamics
+stepDynamics accel turn (w, h) dyn =
+  { now =
+      { pos = dyn.now.pos .+. dyn.change.pos .+. (0.5 *. accel)
+      , ang = dyn.now.ang + turn
+      }
+  , change = { pos = dyn.change.pos .+. accel, ang = dyn.change.ang }
+  } |> bounce w h
+
+type Thing = { avatar : Form, dyn : Dynamics }
+data World = W Thing [Thing]
+
+h : Form
+h = rotate (-pi/2) << toForm << centered << Text.height 50 <| toText "H"
+
+firstWorld : World
+firstWorld =
+  let player =
+        { avatar = h
+        , dyn =
+          { now = { pos = Vector.zero, ang = pi/2 }
+          , change = { pos = Vector.zero, ang = 0 }
+          }
+        }
+      other =
+        { avatar = h
+        , dyn =
+          { now = { pos = { x = 100, y = 0 }, ang = pi/2 }
+          , change = { pos = { x = 0.3, y = 0.2 }, ang = 0.01 }
+          }
+        }
+  in
+  W player [other]
+
+unfoldr : (b -> Maybe (a, b)) -> b -> [a]
+unfoldr k seed =
+  case k seed of
+    Nothing -> []
+    Just (x, new) -> x :: unfoldr k new
+
+contexts : [a] -> [([a], a, [a])]
+contexts xs =
+  case xs of
+    [] -> []
+    x :: xs ->
+      let go (before, here, after) =
+            case after of
+              [] -> Nothing
+              next :: rest ->
+                let ctx = (here :: before, next, rest)
+                in Just (ctx, ctx)
+      in ([], x, xs) :: unfoldr go ([], x, xs)
+
+stepWorld : (Control, (Int, Int)) -> World -> World
+stepWorld (ctl, (w, h)) (W player others) =
+  let pushBetween x y =
+        let displacement = y.dyn.now.pos .-. x.dyn.now.pos
+            distance = Vector.length displacement
+        in (-400 / distance^3) *. displacement
+      pushOn x ys = foldl (.+.) Vector.zero (map (pushBetween x) ys)
+      newPlayer =
+        let push = pushOn player others
+            accel = motionVector player.dyn.now.ang ctl.move .+. push
+        in 
+        { avatar = player.avatar
+        , dyn = stepDynamics accel ctl.turn (w, h) player.dyn
+        }
+      newOther (before, other, after) =
+        let push = pushBetween other player
+              .+. pushOn other before
+              .+. pushOn other after
+        in
+        { avatar = other.avatar
+        , dyn = stepDynamics push 0.01 (w, h) other.dyn
+        }
+  in
+  W newPlayer (map newOther (contexts others))
+
+world : Signal World
+world = foldp stepWorld firstWorld ((,) <~ sampleOn ticks control ~ Window.dimensions)
 
 main : Signal Element
 main =
-  let scene (w,h) dyn con =
-        let pos = dyn.position
-            canvas = collage w h [move (pos.x, pos.y) (rotate dyn.orientation avatar)]
-            debug = flow down [asText con, asText dyn]
+  let drawWorld (w,h) (W player others) con =
+        let drawThing thing =
+              move (thing.dyn.now.pos.x, thing.dyn.now.pos.y)
+                (rotate thing.dyn.now.ang thing.avatar)
+            canvas = collage w h (map drawThing (player :: others))
+            debug = flow down (asText con :: asText player :: map asText others)
         in
-        debug `above` canvas
+        layers [canvas, debug]
   in
-  scene <~ Window.dimensions ~ thingDynamics ~ control
+  drawWorld <~ Window.dimensions ~ world ~ control

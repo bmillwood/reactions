@@ -15,4 +15,4 @@ main = shakeArgs shakeOptions{shakeFiles="build/"} $ do
     out *> \ _out -> do
         let src = "Main.elm"
         need [src]
-        cmd "elm --set-runtime=elm-runtime.js" src
+        cmd "elm --make --set-runtime=elm-runtime.js" src
