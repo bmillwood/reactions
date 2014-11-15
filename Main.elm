@@ -7,8 +7,10 @@ import List
 import Mouse
 import Signal
 import Text
+import Time
 import Window
 
+import Param
 import Vector
 import Vector (Vector, (.+.), (.-.), (*.))
 
@@ -20,8 +22,8 @@ type Control = { move : RelVector, turn : Float }
 key : Char -> Signal Bool
 key = Keyboard.isDown << Char.toCode
 
-ticks : Signal Time
-ticks = fps 10
+ticks : Signal Float
+ticks = Time.inSeconds <~ fps Param.fps
 
 control : Signal Control
 control =
@@ -29,8 +31,8 @@ control =
         if | pos && not neg -> 1 | neg && not pos -> -1 | otherwise -> 0
       keyPair posChar negChar = posNeg <~ key posChar ~ key negChar
       keysControl ws ad eq =
-        { move = { forward = 0.5 * ws, right = 0.5 * eq }
-        , turn = 0.1 * ad
+        { move = { forward = ws, right = eq }
+        , turn = ad
         }
   in
   keysControl <~ keyPair 'w' 's' ~ keyPair 'a' 'd' ~ keyPair 'e' 'q'
@@ -61,13 +63,13 @@ bounce w h dyn =
     }
   }
 
-stepDynamics : Vector -> Float -> (Int, Int) -> Dynamics -> Dynamics
-stepDynamics accel turn (w, h) dyn =
+stepDynamics : Time -> Vector -> Float -> (Int, Int) -> Dynamics -> Dynamics
+stepDynamics timeDelta accel turn (w, h) dyn =
   { now =
-      { pos = dyn.now.pos .+. dyn.change.pos .+. (0.5 *. accel)
-      , ang = dyn.now.ang + turn
+      { pos = dyn.now.pos .+. timeDelta *. dyn.change.pos .+. timeDelta^2 *. accel
+      , ang = dyn.now.ang + timeDelta * dyn.change.ang
       }
-  , change = { pos = dyn.change.pos .+. accel, ang = dyn.change.ang }
+  , change = { pos = dyn.change.pos .+. timeDelta *. accel, ang = turn }
   } |> bounce w h
 
 type Thing = { avatar : Form, dyn : Dynamics }
@@ -89,7 +91,7 @@ firstWorld =
         { avatar = h
         , dyn =
           { now = { pos = { x = 100, y = 0 }, ang = pi/2 }
-          , change = { pos = { x = 0.3, y = 0.2 }, ang = 0.01 }
+          , change = { pos = { x = 0.3, y = 0.2 }, ang = 1 }
           }
         }
   in
@@ -114,19 +116,20 @@ contexts xs =
                 in Just (ctx, ctx)
       in ([], x, xs) :: unfoldr go ([], x, xs)
 
-stepWorld : (Control, (Int, Int)) -> World -> World
-stepWorld (ctl, (w, h)) (W player others) =
+stepWorld : (Control, Time, (Int, Int)) -> World -> World
+stepWorld (ctl, timeDelta, (w, h)) (W player others) =
   let pushBetween x y =
         let displacement = y.dyn.now.pos .-. x.dyn.now.pos
             distance = Vector.length displacement
-        in (-400 / distance^3) *. displacement
+        in (negate Param.gravity / distance^3) *. displacement
       pushOn x ys = foldl (.+.) Vector.zero (map (pushBetween x) ys)
       newPlayer =
         let push = pushOn player others
-            accel = motionVector player.dyn.now.ang ctl.move .+. push
+            accel = Param.playerAccel *. motionVector player.dyn.now.ang ctl.move .+. push
+            turn = Param.playerTurnSpeed * ctl.turn
         in 
         { avatar = player.avatar
-        , dyn = stepDynamics accel ctl.turn (w, h) player.dyn
+        , dyn = stepDynamics timeDelta accel turn (w, h) player.dyn
         }
       newOther (before, other, after) =
         let push = pushBetween other player
@@ -134,23 +137,24 @@ stepWorld (ctl, (w, h)) (W player others) =
               .+. pushOn other after
         in
         { avatar = other.avatar
-        , dyn = stepDynamics push 0.01 (w, h) other.dyn
+        , dyn = stepDynamics timeDelta push 0.1 (w, h) other.dyn
         }
   in
   W newPlayer (map newOther (contexts others))
 
 world : Signal World
-world = foldp stepWorld firstWorld ((,) <~ sampleOn ticks control ~ Window.dimensions)
+world = foldp stepWorld firstWorld
+  ((,,) <~ sampleOn ticks control ~ ticks ~ Window.dimensions)
 
 main : Signal Element
 main =
-  let drawWorld (w,h) (W player others) con =
+  let drawWorld (w,h) (W player others) con delta =
         let drawThing thing =
               move (thing.dyn.now.pos.x, thing.dyn.now.pos.y)
                 (rotate thing.dyn.now.ang thing.avatar)
             canvas = collage w h (map drawThing (player :: others))
-            debug = flow down (asText con :: asText player :: map asText others)
+            debug = flow down (asText delta :: asText con :: asText player :: map asText others)
         in
         layers [canvas, debug]
   in
-  drawWorld <~ Window.dimensions ~ world ~ control
+  drawWorld <~ Window.dimensions ~ world ~ control ~ ticks
