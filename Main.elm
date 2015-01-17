@@ -118,8 +118,8 @@ firstWorld =
       }
     ]
 
-fuseIntoPlayer : World -> World
-fuseIntoPlayer world =
+fuse : World -> World
+fuse world =
   let tryFuse other (W player others) =
         let d = Vector.length (player.dyn.now.pos .-. other.dyn.now.pos)
         in
@@ -148,7 +148,9 @@ fuseIntoPlayer world =
           (_, _) -> W player (other :: others)
   in
   case world of
-    W player others -> foldr tryFuse (W player []) others
+    W player [] -> W player []
+    W player (other :: others) -> case fuse (W other others) of
+      W other others -> foldr tryFuse (W player []) (other :: others)
 
 doPhysics : Control -> Time -> (Int, Int) -> World -> World
 doPhysics ctl timeDelta (w, h) (W player others) =
@@ -184,7 +186,7 @@ doPhysics ctl timeDelta (w, h) (W player others) =
 
 stepWorld : (Control, Time, (Int, Int)) -> World -> World
 stepWorld (ctl, timeDelta, (w, h)) =
-  fuseIntoPlayer << doPhysics ctl timeDelta (w, h)
+  fuse << doPhysics ctl timeDelta (w, h)
 
 world : Signal World
 world = foldp stepWorld firstWorld
