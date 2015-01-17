@@ -13,5 +13,5 @@ main = shakeArgs shakeOptions{shakeFiles="build/"} $ do
         cmd "scp" out "shell.srcf.net:~/public_html/reactions"
 
     out *> \ _out -> do
-        need ["Main.elm", "Vector.elm", "Param.elm"]
+        need =<< getDirectoryFiles "" ["*.elm"]
         cmd "elm --make --set-runtime=elm-runtime.js Main.elm"
