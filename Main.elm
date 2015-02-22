@@ -1,13 +1,16 @@
 module Main where
 
 import Char
-import Graphics.Collage
+import Graphics.Collage as Collage
+import Graphics.Element (Element)
 import Keyboard
 import List
 import Mouse
 import Signal
+import Signal (Signal, (<~), (~))
 import Text
 import Time
+import Time (Time)
 import Window
 
 import Fusion
@@ -16,13 +19,13 @@ import Util (contexts)
 import Vector
 import Vector (Vector, (.+.), (.-.), (*.))
 
-type RelVector = { forward : Float, right : Float }
-type Momentum = { pos : Vector, ang : Float }
-type Dynamics = { now : Momentum, change : Momentum }
-type Control = { move : RelVector, turn : Float }
+type alias RelVector = { forward : Float, right : Float }
+type alias Momentum = { pos : Vector, ang : Float }
+type alias Dynamics = { now : Momentum, change : Momentum }
+type alias Control = { move : RelVector, turn : Float }
 
 ticks : Signal Float
-ticks = Time.inSeconds <~ fps Param.fps
+ticks = Time.inSeconds <~ Time.fps Param.fps
 
 control : Signal Control
 control =
@@ -72,8 +75,8 @@ stepDynamics timeDelta accel turn (w, h) dyn =
   , change = { pos = dyn.change.pos .+. timeDelta *. accel, ang = turn }
   } |> bounce w h
 
-type Thing = { atom : Fusion.Atom, dyn : Dynamics }
-data World = W Thing [Thing]
+type alias Thing = { atom : Fusion.Atom, dyn : Dynamics }
+type World = W Thing (List Thing)
 
 firstWorld : World
 firstWorld =
@@ -131,7 +134,7 @@ fuse world =
                   Fusion.mass thing.atom * thing.dyn.change.ang
                 totalMomentum = thingMomentum player .+. thingMomentum other
                 totalAngMom = thingAngMom player + thingAngMom other
-                totalMass = sum (map Fusion.mass (newPlayerAtom :: newOthers))
+                totalMass = List.sum (List.map Fusion.mass (newPlayerAtom :: newOthers))
                 newPlayerMass = Fusion.mass newPlayerAtom
                 playerFrac = newPlayerMass / totalMass
                 newPlayer =
@@ -150,7 +153,7 @@ fuse world =
   case world of
     W player [] -> W player []
     W player (other :: others) -> case fuse (W other others) of
-      W other others -> foldr tryFuse (W player []) (other :: others)
+      W other others -> List.foldr tryFuse (W player []) (other :: others)
 
 doPhysics : Control -> Time -> (Int, Int) -> World -> World
 doPhysics ctl timeDelta (w, h) (W player others) =
@@ -161,7 +164,7 @@ doPhysics ctl timeDelta (w, h) (W player others) =
               Fusion.charge x.atom * Fusion.charge y.atom
                 * Param.repulsion / distance^2
         in (negate magnitude / distance) *. displacement
-      pushOn x ys = foldl (.+.) Vector.zero (map (pushBetween x) ys)
+      pushOn x ys = Vector.sum (List.map (pushBetween x) ys)
       newPlayer =
         let push = pushOn player others
             accel =
@@ -182,24 +185,23 @@ doPhysics ctl timeDelta (w, h) (W player others) =
         , dyn = stepDynamics timeDelta accel 0.1 (w, h) other.dyn
         }
   in
-  W newPlayer (map newOther (contexts others))
+  W newPlayer (List.map newOther (contexts others))
 
 stepWorld : (Control, Time, (Int, Int)) -> World -> World
 stepWorld (ctl, timeDelta, (w, h)) =
   fuse << doPhysics ctl timeDelta (w, h)
 
 world : Signal World
-world = foldp stepWorld firstWorld
-  ((,,) <~ sampleOn ticks control ~ ticks ~ Window.dimensions)
+world = Signal.foldp stepWorld firstWorld
+  ((,,) <~ Signal.sampleOn ticks control ~ ticks ~ Window.dimensions)
 
 main : Signal Element
 main =
   let drawWorld (w,h) (W player others) con delta =
         let drawThing thing =
-              move (thing.dyn.now.pos.x, thing.dyn.now.pos.y)
-                (rotate thing.dyn.now.ang (Fusion.form thing.atom))
-            canvas = collage w h (map drawThing (player :: others))
+              Collage.move (thing.dyn.now.pos.x, thing.dyn.now.pos.y)
+                (Collage.rotate thing.dyn.now.ang (Fusion.form thing.atom))
         in
-        layers [canvas]
+        Collage.collage w h (List.map drawThing (player :: others))
   in
   drawWorld <~ Window.dimensions ~ world ~ control ~ ticks

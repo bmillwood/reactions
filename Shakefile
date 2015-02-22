@@ -5,7 +5,7 @@ import Development.Shake.Util
 
 main :: IO ()
 main = shakeArgs shakeOptions{shakeFiles="build/"} $ do
-    let out = "build/Main.html"
+    let out = "build/reactions.js"
     want [out]
 
     phony "upload" $ do    
@@ -14,4 +14,4 @@ main = shakeArgs shakeOptions{shakeFiles="build/"} $ do
 
     out *> \ _out -> do
         need =<< getDirectoryFiles "" ["*.elm"]
-        cmd "elm --make --set-runtime=elm-runtime.js Main.elm"
+        cmd "elm-make Main.elm --output" out

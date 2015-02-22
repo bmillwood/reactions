@@ -1,0 +1,13 @@
+{
+    "version": "0.1.0",
+    "summary": "a game piloting atoms into fusing with each other",
+    "repository": "https://github.com/bmillwood/reactions.git",
+    "license": "BSD3",
+    "source-directories": [
+        "."
+    ],
+    "exposed-modules": [],
+    "dependencies": {
+        "elm-lang/core": "1.1.0 <= v < 2.0.0"
+    }
+}

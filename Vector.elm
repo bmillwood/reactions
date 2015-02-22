@@ -1,6 +1,7 @@
 module Vector where
+import List
 
-type Vector = { x : Float, y : Float }
+type alias Vector = { x : Float, y : Float }
 
 zero : Vector
 zero = { x = 0, y = 0 }
@@ -8,6 +9,9 @@ zero = { x = 0, y = 0 }
 infixl 6 .+.
 (.+.) : Vector -> Vector -> Vector
 a .+. b = { x = a.x + b.x, y = a.y + b.y }
+
+sum : List Vector -> Vector
+sum = List.foldl (.+.) zero
 
 infixl 6 .-.
 (.-.) : Vector -> Vector -> Vector

@@ -1,8 +1,10 @@
 module Fusion where
 
 import Text
+import Graphics.Collage as Collage
+import Graphics.Element as Element
 
-data Atom = H | H2 | He3 | He4
+type Atom = H | H2 | He3 | He4
 
 mass : Atom -> Float
 mass a =
@@ -28,21 +30,23 @@ name a =
     He3 -> "He"
     He4 -> "He"
 
-form : Atom -> Form
+form : Atom -> Collage.Form
 form a =
-  let text height = centered << Text.height height << toText
+  let toText = Text.fromString << toString
+      text height = Text.centered << Text.height height << Text.fromString
       nameHeight = 50
       massHeight = 20
       withMass m name =
         let t = text nameHeight name
         in
-        group
-          [ move (negate (5 + toFloat (widthOf t) / 2), 20)
-              (toForm (rightAligned (Text.height massHeight (toText (show m)))))
-          , toForm t
+        Collage.group
+          [ Collage.move (negate (5 + toFloat (Element.widthOf t) / 2), 20)
+              (Collage.toForm
+                (Text.rightAligned (Text.height massHeight (toText m))))
+          , Collage.toForm t
           ]
-        |> rotate (-pi/2)
-      noMass = rotate (-pi/2) << toForm << text nameHeight
+        |> Collage.rotate (-pi/2)
+      noMass = Collage.rotate (-pi/2) << Collage.toForm << text nameHeight
   in
   case a of
     H -> noMass "H"
@@ -50,7 +54,7 @@ form a =
     He3 -> withMass 3 "He"
     He4 -> noMass "He"
 
-fuse : Atom -> Atom -> Maybe (Atom, [Atom])
+fuse : Atom -> Atom -> Maybe (Atom, List Atom)
 fuse a1 a2 =
   case (a1, a2) of
     (H, H) -> Just (H2, [])
