@@ -6,6 +6,7 @@ import Graphics.Element (Element)
 import Keyboard
 import List
 import Mouse
+import Random
 import Signal
 import Signal (Signal, (<~), (~))
 import Text
@@ -24,8 +25,8 @@ type alias Momentum = { pos : Vector, ang : Float }
 type alias Dynamics = { now : Momentum, change : Momentum }
 type alias Control = { move : RelVector, turn : Float }
 
-ticks : Signal Float
-ticks = Time.inSeconds <~ Time.fps Param.fps
+ticks : Signal Time
+ticks = Time.fps Param.fps
 
 control : Signal Control
 control =
@@ -42,9 +43,7 @@ control =
 
 motionVector : Float -> RelVector -> Vector
 motionVector orient { forward, right } =
-  { x = forward * cos orient + right * sin orient
-  , y = forward * sin orient - right * cos orient
-  }
+  Vector.rotate orient { x = right, y = forward }
 
 bounce : Int -> Int -> Dynamics -> Dynamics
 bounce w h dyn =
@@ -75,79 +74,77 @@ stepDynamics timeDelta accel turn (w, h) dyn =
   , change = { pos = dyn.change.pos .+. timeDelta *. accel, ang = turn }
   } |> bounce w h
 
-type alias Thing = { atom : Fusion.Atom, dyn : Dynamics }
+type alias Thing = { atom : Fusion.Atom, noFuseTime : Time, dyn : Dynamics }
 type World = W Thing (List Thing)
 
 firstWorld : World
 firstWorld =
-  let player =
+  let hAt p =
         { atom = Fusion.H
+        , noFuseTime = 0
         , dyn =
-          { now = { pos = Vector.zero, ang = pi/2 }
+          { now = { pos = p, ang = 0 }
           , change = { pos = Vector.zero, ang = 0 }
           }
         }
   in
-  W player
-    [ { atom = Fusion.H
-      , dyn =
-        { now = { pos = { x = 100, y = 0 }, ang = pi/2 }
-        , change = { pos = { x = 0.3, y = 0.2 }, ang = 1 }
-        }
-      }
-    , { atom = Fusion.H
-      , dyn =
-        { now = { pos = { x = 130, y = 80 }, ang = pi/2 }
-        , change = { pos = { x = -1, y = 0 }, ang = -1 }
-        }
-      }
-    , { atom = Fusion.H
-      , dyn =
-        { now = { pos = { x = 80, y = 180 }, ang = pi/2 }
-        , change = { pos = { x = 0, y = 2 }, ang = -1 }
-        }
-      }
-    , { atom = Fusion.H
-      , dyn =
-        { now = { pos = { x = -50, y = 80 }, ang = pi/2 }
-        , change = { pos = { x = -1, y = 1 }, ang = -1 }
-        }
-      }
-    , { atom = Fusion.H
-      , dyn =
-        { now = { pos = { x = -130, y = -80 }, ang = pi/2 }
-        , change = { pos = { x = 0, y = 0 }, ang = -1 }
-        }
-      }
+  W (hAt Vector.zero)
+    [ hAt { x = -100, y = -50 }
+    , hAt { x = 100, y = 0 }
+    , hAt { x = 130, y = 80 }
+    , hAt { x = 260, y = 160 }
+    , hAt { x = -110, y = 10 }
+    , hAt { x = -210, y = 30 }
+    , hAt { x = -220, y = -70 }
+    , hAt { x = -20, y = -270 }
+    , hAt { x = 20, y = 250 }
     ]
 
 fuse : World -> World
 fuse world =
   let tryFuse other (W player others) =
-        let d = Vector.length (player.dyn.now.pos .-. other.dyn.now.pos)
+        let shouldFuse =
+              other.noFuseTime == 0
+                && player.noFuseTime == 0
+                && Vector.length (player.dyn.now.pos .-. other.dyn.now.pos)
+                    <= Param.minFusionDistance
         in
-        case (d < Param.minFusionDistance, Fusion.fuse player.atom other.atom) of
+        case (shouldFuse, Fusion.fuse player.atom other.atom) of
           (True, Just (newPlayerAtom, newOthers)) ->
             let thingMomentum thing =
                   Fusion.mass thing.atom *. thing.dyn.change.pos
                 thingAngMom thing =
                   Fusion.mass thing.atom * thing.dyn.change.ang
-                totalMomentum = thingMomentum player .+. thingMomentum other
-                totalAngMom = thingAngMom player + thingAngMom other
-                totalMass = List.sum (List.map Fusion.mass (newPlayerAtom :: newOthers))
-                newPlayerMass = Fusion.mass newPlayerAtom
-                playerFrac = newPlayerMass / totalMass
-                newPlayer =
-                  { atom = newPlayerAtom
+                fusedMomentum = thingMomentum player .+. thingMomentum other
+                fusedDirection = Vector.direction fusedMomentum
+                fusedAngMom = thingAngMom player + thingAngMom other
+                fusedMass = List.sum (List.map Fusion.mass (newPlayerAtom :: newOthers))
+                fusedAng =
+                  Vector.direction <|
+                    Vector.unit player.dyn.now.ang
+                    .+. Vector.unit other.dyn.now.ang
+                fusedMove = (1 / fusedMass) *. fusedMomentum
+                fusedPosition = 0.5 *. (player.dyn.now.pos .+. other.dyn.now.pos)
+                numNew = 1 + List.length newOthers
+                makeNew atom newAngle displacement =
+                  { atom = atom
+                  , noFuseTime = Param.minTimeBetweenFuses
                   , dyn =
-                      { now = player.dyn.now
-                      , change =
-                        { pos = (playerFrac / newPlayerMass) *. totalMomentum
-                        , ang = 0 }
+                      { now =
+                        { pos = fusedPosition .+. displacement
+                        , ang = newAngle
+                        }
+                      , change = { pos = fusedMove, ang = 0 }
                       }
                   }
+                newPlayer =
+                  makeNew newPlayerAtom player.dyn.now.ang
+                    (10 *. Vector.unit fusedDirection)
+                newOther ix otherAtom =
+                  makeNew otherAtom fusedAng
+                    (10 *. Vector.unit (2 * pi * toFloat (ix + 1) / toFloat numNew))
             in
-            W newPlayer others -- TODO: deal with newOthers
+            W newPlayer (List.indexedMap newOther newOthers ++ others)
           (_, _) -> W player (other :: others)
   in
   case world of
@@ -160,10 +157,11 @@ doPhysics ctl timeDelta (w, h) (W player others) =
   let pushBetween x y =
         let displacement = y.dyn.now.pos .-. x.dyn.now.pos
             distance = Vector.length displacement
-            magnitude =
+            rawMagnitude =
               Fusion.charge x.atom * Fusion.charge y.atom
                 * Param.repulsion / distance^2
-        in (negate magnitude / distance) *. displacement
+            clippedMagnitude = min rawMagnitude Param.maxRepulsion
+        in (negate clippedMagnitude / distance) *. displacement
       pushOn x ys = Vector.sum (List.map (pushBetween x) ys)
       newPlayer =
         let push = pushOn player others
@@ -173,6 +171,7 @@ doPhysics ctl timeDelta (w, h) (W player others) =
             turn = Param.playerTurnSpeed * ctl.turn
         in 
         { atom = player.atom
+        , noFuseTime = max 0 (player.noFuseTime - timeDelta)
         , dyn = stepDynamics timeDelta accel turn (w, h) player.dyn
         }
       newOther (before, other, after) =
@@ -182,7 +181,8 @@ doPhysics ctl timeDelta (w, h) (W player others) =
             accel = (1 / Fusion.mass other.atom) *. push
         in
         { atom = other.atom
-        , dyn = stepDynamics timeDelta accel 0.1 (w, h) other.dyn
+        , noFuseTime = max 0 (other.noFuseTime - timeDelta)
+        , dyn = stepDynamics timeDelta accel 0 (w, h) other.dyn
         }
   in
   W newPlayer (List.map newOther (contexts others))

@@ -29,3 +29,15 @@ infixl 7 *.
 
 negate : Vector -> Vector
 negate = (*.) (-1)
+
+direction : Vector -> Float
+direction { x, y } = atan2 y x
+
+rotate : Float -> Vector -> Vector
+rotate theta { x, y } =
+  { x = x * cos theta - y * sin theta
+  , y = x * sin theta + y * cos theta
+  }
+
+unit : Float -> Vector
+unit theta = rotate theta { x = 1, y = 0 }

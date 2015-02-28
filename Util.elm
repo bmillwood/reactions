@@ -9,14 +9,9 @@ unfoldr k seed =
 
 contexts : List a -> List (List a, a, List a)
 contexts xs =
-  case xs of
-    [] -> []
-    x :: xs ->
-      let go (before, here, after) =
-            case after of
-              [] -> Nothing
-              next :: rest ->
-                let ctx = (here :: before, next, rest)
-                in Just (ctx, ctx)
-      in ([], x, xs) :: unfoldr go ([], x, xs)
-
+  let go (before, after) =
+        case after of
+          [] -> Nothing
+          next :: rest -> Just ((before, next, rest), (next :: before, rest))
+  in
+  unfoldr go ([], xs)
