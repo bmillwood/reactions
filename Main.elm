@@ -67,11 +67,22 @@ bounce w h dyn =
 
 stepDynamics : Time -> Vector -> Float -> (Int, Int) -> Dynamics -> Dynamics
 stepDynamics timeDelta accel turn (w, h) dyn =
+  let drag =
+        let v = dyn.change.pos
+            len = Vector.length v
+            magnitude = Param.dragCoef * len^2
+            force = (magnitude / len) *. Vector.negate v
+        in
+        if abs len < 0.1 then Vector.zero else force
+  in
   { now =
-      { pos = dyn.now.pos .+. timeDelta *. dyn.change.pos .+. timeDelta^2 *. accel
-      , ang = dyn.now.ang + timeDelta * dyn.change.ang
-      }
-  , change = { pos = dyn.change.pos .+. timeDelta *. accel, ang = turn }
+    { pos = dyn.now.pos .+. timeDelta *. dyn.change.pos .+. timeDelta^2 *. accel
+    , ang = dyn.now.ang + timeDelta * dyn.change.ang
+    }
+  , change =
+    { pos = dyn.change.pos .+. timeDelta *. (accel .+. drag)
+    , ang = turn
+    }
   } |> bounce w h
 
 type alias Thing = { atom : Fusion.Atom, noFuseTime : Time, dyn : Dynamics }

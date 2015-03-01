@@ -5,13 +5,13 @@ import Development.Shake.Util
 
 main :: IO ()
 main = shakeArgs shakeOptions{shakeFiles="build/"} $ do
-    let out = "build/reactions.js"
+    let out = "build/reactions.html"
     want [out]
 
     phony "upload" $ do    
         need [out]
         cmd "scp" out "shell.srcf.net:~/public_html/reactions"
 
-    out *> \ _out -> do
+    out *> \ _ -> do
         need =<< getDirectoryFiles "" ["*.elm"]
         cmd "elm-make Main.elm --output" out
