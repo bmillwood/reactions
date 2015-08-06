@@ -66,14 +66,14 @@ bounce w h dyn =
   }
 
 stepDynamics : Time -> Vector -> Float -> (Int, Int) -> Dynamics -> Dynamics
-stepDynamics timeDelta accel turn (w, h) dyn =
+stepDynamics timeDelta accel turnAccel (w, h) dyn =
   let drag =
         let v = dyn.change.pos
-            len = Vector.length v
-            magnitude = Param.dragCoef * len^2
-            force = (magnitude / len) *. Vector.negate v
+            speed = Vector.length v
+            magnitude = Param.dragCoef * speed^2
+            force = (magnitude / speed) *. Vector.negate v
         in
-        if abs len < 0.1 then Vector.zero else force
+        if abs speed < 0.1 then Vector.zero else force
   in
   { now =
     { pos = dyn.now.pos .+. timeDelta *. dyn.change.pos .+. timeDelta^2 *. accel
@@ -81,7 +81,7 @@ stepDynamics timeDelta accel turn (w, h) dyn =
     }
   , change =
     { pos = dyn.change.pos .+. timeDelta *. (accel .+. drag)
-    , ang = turn
+    , ang = dyn.change.ang + timeDelta * turnAccel
     }
   } |> bounce w h
 
@@ -179,7 +179,13 @@ doPhysics ctl timeDelta (w, h) (W player others) =
             accel =
               Param.playerAccel *. motionVector player.dyn.now.ang ctl.move
                 .+. (1 / Fusion.mass player.atom) *. push
-            turn = Param.playerTurnSpeed * ctl.turn
+            adjustedCtl = if
+              | ctl.turn == 0 ->
+                  clamp (-1) 1 (negate player.dyn.change.ang * Time.second / 10)
+              | abs player.dyn.change.ang > Param.fastTurn ->
+                  clamp (-1) 1 (negate player.dyn.change.ang * 100)
+              | otherwise -> ctl.turn
+            turn = Param.playerTurnSpeed * adjustedCtl
         in 
         { atom = player.atom
         , noFuseTime = max 0 (player.noFuseTime - timeDelta)
