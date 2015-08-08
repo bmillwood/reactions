@@ -2,6 +2,7 @@ module Main where
 
 import Char
 import Graphics.Collage as Collage
+import Graphics.Element as Element
 import Graphics.Element (Element)
 import Keyboard
 import List
@@ -245,6 +246,9 @@ main =
               Collage.move (thing.dyn.now.pos.x, thing.dyn.now.pos.y)
                 (Collage.rotate thing.dyn.now.ang (Fusion.form thing.atom))
         in
-        Collage.collage w h (List.map drawThing (player :: others))
+        Element.flow Element.inward
+          [ Collage.collage w h (List.map drawThing (player :: others))
+          , Fusion.help player.atom
+          ]
   in
   drawWorld <~ Window.dimensions ~ world ~ control ~ ticks

@@ -1,5 +1,6 @@
 module Fusion where
 
+import List
 import Text
 import Graphics.Collage as Collage
 import Graphics.Element as Element
@@ -33,29 +34,25 @@ name a =
     He4 -> "He"
     Be7 -> "Be"
 
-form : Atom -> Collage.Form
-form a =
-  let toText = Text.fromString << toString
-      text height = Text.centered << Text.height height << Text.fromString
-      nameHeight = 50
-      massHeight = 20
-      withMass m name =
-        let t = text nameHeight name
-        in
-        Collage.group
-          [ Collage.move (negate (5 + toFloat (Element.widthOf t) / 2), 20)
-              (Collage.toForm
-                (Text.rightAligned (Text.height massHeight (toText m))))
-          , Collage.toForm t
-          ]
-      noMass = Collage.toForm << text nameHeight
+textH : Float -> String -> Element.Element
+textH height = Text.centered << Text.height height << Text.fromString
+
+elementH : Float -> Atom -> Element.Element
+elementH height a =
+  let mk = textH height
   in
   case a of
-    H -> noMass "H"
-    H2 -> withMass 2 "H"
-    He3 -> withMass 3 "He"
-    He4 -> noMass "He"
-    Be7 -> withMass 7 "Be"
+    H -> mk "H"
+    H2 -> mk "²H"
+    He3 -> mk "³He"
+    He4 -> mk "He"
+    Be7 -> mk "⁷Be"
+
+element : Atom -> Element.Element
+element = elementH 45
+
+form : Atom -> Collage.Form
+form = Collage.toForm << element
 
 fuse : Atom -> Atom -> Maybe (Atom, List Atom)
 fuse a1 a2 =
@@ -67,3 +64,19 @@ fuse a1 a2 =
     (He3, He4) -> Just (Be7, [])
     (He4, He3) -> Just (Be7, [])
     (_, _) -> Nothing
+
+help : Atom -> Element.Element
+help a =
+  let sp = Element.spacer 10 30
+      plus x xs = sp :: textH 30 "+" :: sp :: elementH 30 x :: xs
+      sum xs =
+        Element.flow Element.right
+          (List.drop 3 (List.foldr plus [] xs))
+      mk lhs rhs = Element.flow Element.right [sp, sum lhs, sp, textH 30 "→", sp, sum rhs]
+  in
+  case a of
+    H -> mk [H,H] [H2]
+    H2 -> mk [H2,H] [He3]
+    He3 -> mk [He3,He3] [He4,H,H]
+    He4 -> mk [He4,He3] [Be7]
+    Be7 -> Element.empty
