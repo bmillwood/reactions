@@ -20,6 +20,12 @@ a .-. b = { x = a.x - b.x, y = a.y - b.y }
 length : Vector -> Float
 length { x, y } = sqrt (x^2 + y^2)
 
+clipLength : { max : Float } -> Vector -> Vector
+clipLength { max } v =
+  let l = length v
+  in
+  if l > max then (max / l) *. v else v
+
 map : (Float -> Float) -> Vector -> Vector
 map f v = { x = f v.x, y = f v.y }
 
@@ -41,3 +47,6 @@ rotate theta { x, y } =
 
 unit : Float -> Vector
 unit theta = rotate theta { x = 1, y = 0 }
+
+dot : Vector -> Vector -> Float
+dot v1 v2 = v1.x * v2.x + v1.y * v2.y

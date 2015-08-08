@@ -16,6 +16,8 @@ import Window
 
 import Fusion
 import Param
+import Rigid
+import Rigid ((*+*))
 import Util (contexts)
 import Vector
 import Vector (Vector, (.+.), (.-.), (*.))
@@ -87,6 +89,15 @@ stepDynamics timeDelta accel turnAccel (w, h) dyn =
 
 type alias Thing = { atom : Fusion.Atom, noFuseTime : Time, dyn : Dynamics }
 type World = W Thing (List Thing)
+
+body : Thing -> Rigid.Body
+body thing =
+  Rigid.square
+    { centre = thing.dyn.now.pos
+    , mass = Fusion.mass thing.atom
+    , displacement = 30
+    , orientation = thing.dyn.now.ang
+    }
 
 firstWorld : World
 firstWorld =
@@ -165,41 +176,56 @@ fuse world =
 
 doPhysics : Control -> Time -> (Int, Int) -> World -> World
 doPhysics ctl timeDelta (w, h) (W player others) =
-  let pushBetween x y =
-        let displacement = y.dyn.now.pos .-. x.dyn.now.pos
+  let pushOn x y =
+        let displacement = y .-. x
             distance = Vector.length displacement
-            rawMagnitude =
-              Fusion.charge x.atom * Fusion.charge y.atom
-                * Param.repulsion / distance^2
-            clippedMagnitude = min rawMagnitude Param.maxRepulsion
-        in (negate clippedMagnitude / distance) *. displacement
-      pushOn x ys = Vector.sum (List.map (pushBetween x) ys)
+            magnitude = Param.repulsion / distance^2
+        in (negate magnitude / distance) *. displacement
+      accelOnThing x y =
+        let charge = Fusion.charge x.atom * Fusion.charge y.atom
+            xbody = body x
+            rotForce pm =
+              Vector.clipLength { max = Param.maxRotRepulsion }
+                (charge *. pushOn pm.point y.dyn.now.pos)
+            ac =
+              Rigid.applyAts
+                (List.map (\pm -> { point = pm.point, force = rotForce pm }) xbody)
+                xbody
+            pushAccel =
+              Vector.clipLength { max = Param.maxPushRepulsion }
+                ((charge / Fusion.mass x.atom) *. pushOn x.dyn.now.pos y.dyn.now.pos)
+        in
+        { accel = pushAccel
+        , rotAccel = ac.rotAccel
+        }
+      accelOns x ys =
+        List.foldl (*+*) Rigid.accelZero (List.map (accelOnThing x) ys)
       newPlayer =
-        let push = pushOn player others
+        let push = accelOns player others
             accel =
               Param.playerAccel *. motionVector player.dyn.now.ang ctl.move
-                .+. (1 / Fusion.mass player.atom) *. push
+                .+. push.accel
             adjustedCtl = if
               | ctl.turn == 0 ->
                   clamp (-1) 1 (negate player.dyn.change.ang * Time.second / 10)
               | abs player.dyn.change.ang > Param.fastTurn ->
                   clamp (-1) 1 (negate player.dyn.change.ang * 100)
               | otherwise -> ctl.turn
-            turn = Param.playerTurnSpeed * adjustedCtl
+            turn = Param.playerTurnSpeed * adjustedCtl + push.rotAccel
         in 
         { atom = player.atom
         , noFuseTime = max 0 (player.noFuseTime - timeDelta)
         , dyn = stepDynamics timeDelta accel turn (w, h) player.dyn
         }
       newOther (before, other, after) =
-        let push = pushBetween other player
-              .+. pushOn other before
-              .+. pushOn other after
-            accel = (1 / Fusion.mass other.atom) *. push
+        let accel = accelOnThing other player
+              *+* accelOns other before
+              *+* accelOns other after
+            rotAccel = accel.rotAccel - (Param.otherRotDecel * other.dyn.change.ang)
         in
         { atom = other.atom
         , noFuseTime = max 0 (other.noFuseTime - timeDelta)
-        , dyn = stepDynamics timeDelta accel 0 (w, h) other.dyn
+        , dyn = stepDynamics timeDelta accel.accel rotAccel (w, h) other.dyn
         }
   in
   W newPlayer (List.map newOther (contexts others))
